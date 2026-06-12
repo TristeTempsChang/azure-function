@@ -2,10 +2,9 @@ import datetime
 import logging
 import os
 
-import azure.functions as fap
-from azure.storage.blob import BlobServiceClient
+import azure.functions as func
 
-app = fap.FunctionApp()
+app = func.FunctionApp()
 
 CONTAINER_NAME = "fichiers-api"
 
@@ -16,33 +15,39 @@ CONTAINER_NAME = "fichiers-api"
     run_on_startup=True,
     use_monitor=False
 )
-def clean_blob_storage(myTimer: fap.TimerRequest) -> None:
+def timer_trigger(myTimer: func.TimerRequest) -> None:
     logging.info("Début du nettoyage du Storage Account...")
 
-    connection_string = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
+    try:
+        from azure.storage.blob import BlobServiceClient
 
-    if not connection_string:
-        logging.error("Variable AZURE_STORAGE_CONNECTION_STRING manquante.")
-        return
+        connection_string = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
 
-    max_age_minutes = int(os.getenv("MAX_BLOB_AGE_MINUTES", "5"))
+        if not connection_string:
+            logging.error("Variable AZURE_STORAGE_CONNECTION_STRING absente.")
+            return
 
-    blob_service_client = BlobServiceClient.from_connection_string(connection_string)
-    container_client = blob_service_client.get_container_client(CONTAINER_NAME)
+        max_age_minutes = int(os.getenv("MAX_BLOB_AGE_MINUTES", "5"))
 
-    now = datetime.datetime.now(datetime.timezone.utc)
-    deleted_count = 0
+        blob_service_client = BlobServiceClient.from_connection_string(connection_string)
+        container_client = blob_service_client.get_container_client(CONTAINER_NAME)
 
-    for blob in container_client.list_blobs():
-        if blob.creation_time is None:
-            logging.warning(f"Impossible de connaître la date de création de {blob.name}")
-            continue
+        now = datetime.datetime.now(datetime.timezone.utc)
+        deleted_count = 0
 
-        age = now - blob.creation_time
+        for blob in container_client.list_blobs():
+            if blob.creation_time is None:
+                logging.warning(f"Date de création inconnue pour : {blob.name}")
+                continue
 
-        if age > datetime.timedelta(minutes=max_age_minutes):
-            container_client.delete_blob(blob.name)
-            deleted_count += 1
-            logging.info(f"Blob supprimé : {blob.name}")
+            age = now - blob.creation_time
 
-    logging.info(f"Nettoyage terminé. Nombre de fichiers supprimés : {deleted_count}")
+            if age > datetime.timedelta(minutes=max_age_minutes):
+                container_client.delete_blob(blob.name)
+                deleted_count += 1
+                logging.info(f"Blob supprimé : {blob.name}")
+
+        logging.info(f"Nettoyage terminé. Nombre de fichiers supprimés : {deleted_count}")
+
+    except Exception as error:
+        logging.exception(f"Erreur pendant le nettoyage : {error}")
